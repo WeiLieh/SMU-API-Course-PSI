@@ -5,7 +5,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Compass,
   LocateFixed,
   RefreshCw,
   AlertCircle,
@@ -13,6 +12,7 @@ import {
   Clock,
   SlidersHorizontal,
   MapPin,
+  Search,
 } from 'lucide-react';
 import {
   Pm25ApiResponse,
@@ -25,6 +25,7 @@ import {
   calculateDistanceKm,
   fetchNeaAirQuality,
   findNearestRegion,
+  lookupSingaporePostalCode,
 } from './services/neaApi';
 
 interface MetricMeta {
@@ -116,13 +117,14 @@ const PSI_METRICS_META: MetricMeta[] = [
   },
 ];
 
-const METRIC_META_MAP: Record<PsiMetricKey, MetricMeta> = PSI_METRICS_META.reduce(
-  (acc, item) => {
-    acc[item.key] = item;
-    return acc;
-  },
-  {} as Record<PsiMetricKey, MetricMeta>
-);
+const METRIC_META_MAP: Record<PsiMetricKey, MetricMeta> =
+  PSI_METRICS_META.reduce(
+    (acc, item) => {
+      acc[item.key] = item;
+      return acc;
+    },
+    {} as Record<PsiMetricKey, MetricMeta>
+  );
 
 const REGION_DISPLAY_NAMES: Record<RegionName, string> = {
   north: 'North',
@@ -197,10 +199,14 @@ export default function App() {
     'psi_twenty_four_hourly'
   );
 
-  // User Location Coordinates (matched against API regionMetadata.labelLocation)
-  const [userLat, setUserLat] = useState<string>('');
-  const [userLng, setUserLng] = useState<string>('');
+  // 6-Digit Singapore Postal Code & Resolved Coordinates (matched against API regionMetadata.labelLocation)
+  const [postalCode, setPostalCode] = useState<string>('');
+  const [userCoords, setUserCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [geoStatus, setGeoStatus] = useState<string | null>(null);
+  const [geoError, setGeoError] = useState<string | null>(null);
   const [locating, setLocating] = useState<boolean>(false);
 
   const loadData = async (queryDate?: string) => {
@@ -291,37 +297,35 @@ export default function App() {
     return regions.find((r) => r.name === selectedRegion) || null;
   }, [regions, selectedRegion]);
 
-  // Calculate distances from user coordinates to each region's labelLocation
+  // Calculate distances from resolved user coordinates to each region's labelLocation
   const regionDistances = useMemo(() => {
-    const lat = parseFloat(userLat);
-    const lng = parseFloat(userLng);
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+    if (!userCoords) return null;
 
     const map: Record<string, number> = {};
     for (const r of regions) {
       map[r.name] = calculateDistanceKm(
-        lat,
-        lng,
+        userCoords.lat,
+        userCoords.lng,
         r.labelLocation.latitude,
         r.labelLocation.longitude
       );
     }
     return map;
-  }, [userLat, userLng, regions]);
+  }, [userCoords, regions]);
 
   const handleLocateMe = () => {
     if (!navigator.geolocation) {
-      setGeoStatus('Location services are not supported by your browser.');
+      setGeoError('Location services are not supported by your browser.');
       return;
     }
     setLocating(true);
     setGeoStatus(null);
+    setGeoError(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
-        setUserLat(lat.toFixed(5));
-        setUserLng(lng.toFixed(5));
+        setUserCoords({ lat, lng });
         const nearest = findNearestRegion(lat, lng, regions);
         if (nearest) {
           setSelectedRegion(nearest.region);
@@ -332,28 +336,60 @@ export default function App() {
         setLocating(false);
       },
       (err) => {
-        setGeoStatus(err.message || 'Could not detect your current location.');
+        setGeoError(err.message || 'Could not detect your current location.');
         setLocating(false);
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
-  const handleCoordinateChange = (newLat: string, newLng: string) => {
-    setUserLat(newLat);
-    setUserLng(newLng);
-    const lat = parseFloat(newLat);
-    const lng = parseFloat(newLng);
-    if (!Number.isNaN(lat) && !Number.isNaN(lng) && regions.length > 0) {
-      const nearest = findNearestRegion(lat, lng, regions);
+  const resolvePostalCode = async (codeToLookup: string) => {
+    setLocating(true);
+    setGeoError(null);
+    setGeoStatus(null);
+    try {
+      const result = await lookupSingaporePostalCode(codeToLookup);
+      setUserCoords({ lat: result.latitude, lng: result.longitude });
+      const nearest = findNearestRegion(
+        result.latitude,
+        result.longitude,
+        regions
+      );
       if (nearest) {
         setSelectedRegion(nearest.region);
         setGeoStatus(
-          `Closest region: ${REGION_DISPLAY_NAMES[nearest.region]} (${nearest.distanceKm.toFixed(1)} km away)`
+          `Postal ${result.postalCode} → ${REGION_DISPLAY_NAMES[nearest.region]} Region (${nearest.distanceKm.toFixed(1)} km)`
         );
       }
-    } else {
+    } catch (err) {
+      setUserCoords(null);
+      setGeoError(
+        err instanceof Error ? err.message : 'Unable to find postal code.'
+      );
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const handlePostalInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setPostalCode(digitsOnly);
+    setGeoError(null);
+
+    if (digitsOnly.length === 6) {
+      resolvePostalCode(digitsOnly);
+    } else if (digitsOnly.length === 0) {
+      setUserCoords(null);
       setGeoStatus(null);
+    }
+  };
+
+  const handlePostalSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (postalCode.length === 6) {
+      resolvePostalCode(postalCode);
+    } else {
+      setGeoError('Please enter a 6-digit Singapore postal code.');
     }
   };
 
@@ -363,45 +399,16 @@ export default function App() {
   };
 
   const activeMetricMeta = METRIC_META_MAP[selectedPsiKey];
-  const regionDisplayName = REGION_DISPLAY_NAMES[selectedRegion] || selectedRegion;
+  const regionDisplayName =
+    REGION_DISPLAY_NAMES[selectedRegion] || selectedRegion;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      {/* Top Bar Contract: 3 zones (Brand, Nav links, Primary Actions) */}
+      {/* Header without top anchoring tabs */}
       <header className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 h-14 bg-white/90 backdrop-blur-md border-b border-slate-200">
-        <a
-          href="#overview"
-          className="text-base sm:text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap"
-        >
+        <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap">
           SG Air Quality Monitor
-        </a>
-
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
-          <a
-            href="#controls"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap"
-          >
-            Location & Time
-          </a>
-          <a
-            href="#primary-readings"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap"
-          >
-            Key Readings
-          </a>
-          <a
-            href="#psi-breakdown"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap"
-          >
-            All Pollutants
-          </a>
-          <a
-            href="#regional-matrix"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap"
-          >
-            Compare Regions
-          </a>
-        </nav>
+        </span>
 
         <div className="flex items-center gap-2">
           <button
@@ -428,10 +435,7 @@ export default function App() {
       </header>
 
       {/* Main Content Container */}
-      <main
-        id="overview"
-        className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8"
-      >
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8">
         {/* Error Banner */}
         {error && (
           <div
@@ -453,9 +457,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Section 1: Controls for Region, Date, Time, and Location */}
+        {/* Section 1: Controls for Region, Date, Time, and Singapore Postal Code */}
         <section
-          id="controls"
           aria-label="Location and Date Controls"
           className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-6"
         >
@@ -529,7 +532,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Input Fields Mapped to API Query Parameters & Coordinates */}
+          {/* Input Fields Mapped to API Query Parameters & Postal Code Location */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-1">
             {/* 1. Date & Hourly Time Selection */}
             <div className="space-y-3">
@@ -593,58 +596,38 @@ export default function App() {
               </div>
             </div>
 
-            {/* 2. Your Location Coordinates (Latitude & Longitude) */}
+            {/* 2. 6-Digit Singapore Postal Code Input */}
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2.5">
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="user-lat-input"
-                    className="flex items-center gap-1 text-xs font-semibold text-slate-700"
-                  >
-                    <Compass className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Your Latitude</span>
-                  </label>
+              <form onSubmit={handlePostalSubmit} className="space-y-1.5">
+                <label
+                  htmlFor="postal-code-input"
+                  className="flex items-center gap-1.5 text-xs font-semibold text-slate-700"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Singapore Postal Code (6 Digits)</span>
+                </label>
+                <div className="flex items-center gap-2">
                   <input
-                    id="user-lat-input"
-                    type="number"
-                    step="0.00001"
-                    placeholder={
-                      activeRegionMeta
-                        ? String(activeRegionMeta.labelLocation.latitude)
-                        : '1.35735'
-                    }
-                    value={userLat}
-                    onChange={(e) =>
-                      handleCoordinateChange(e.target.value, userLng)
-                    }
-                    className="w-full min-h-[44px] px-3 py-2 text-xs font-mono tabular-nums bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
+                    id="postal-code-input"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    pattern="\d{6}"
+                    placeholder="e.g. 178902"
+                    value={postalCode}
+                    onChange={handlePostalInputChange}
+                    className="flex-1 min-h-[44px] px-3 py-2 text-sm font-mono tabular-nums tracking-wider bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="user-lng-input"
-                    className="flex items-center gap-1 text-xs font-semibold text-slate-700"
+                  <button
+                    type="submit"
+                    disabled={locating || postalCode.length !== 6}
+                    className="min-h-[44px] px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 rounded-xl transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
                   >
-                    <Compass className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Your Longitude</span>
-                  </label>
-                  <input
-                    id="user-lng-input"
-                    type="number"
-                    step="0.00001"
-                    placeholder={
-                      activeRegionMeta
-                        ? String(activeRegionMeta.labelLocation.longitude)
-                        : '103.82'
-                    }
-                    value={userLng}
-                    onChange={(e) =>
-                      handleCoordinateChange(userLat, e.target.value)
-                    }
-                    className="w-full min-h-[44px] px-3 py-2 text-xs font-mono tabular-nums bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
-                  />
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Find</span>
+                  </button>
                 </div>
-              </div>
+              </form>
 
               <div className="flex flex-col gap-1 pt-0.5 text-xs text-slate-500">
                 <span className="flex items-center gap-1.5">
@@ -659,9 +642,10 @@ export default function App() {
                   </span>
                 </span>
                 {geoStatus && (
-                  <span className="text-blue-600 font-medium">
-                    {geoStatus}
-                  </span>
+                  <span className="text-blue-600 font-medium">{geoStatus}</span>
+                )}
+                {geoError && (
+                  <span className="text-rose-600 font-medium">{geoError}</span>
                 )}
               </div>
             </div>
@@ -699,9 +683,8 @@ export default function App() {
           </div>
         </section>
 
-        {/* Section 2: Focal Anchor — Primary Regional Readings for Selected Region */}
+        {/* Section 2: Primary Regional Readings for Selected Region */}
         <section
-          id="primary-readings"
           aria-label="Selected Region Primary Readings"
           className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6"
         >
@@ -815,7 +798,6 @@ export default function App() {
 
         {/* Section 3: Complete Pollutant & Sub-Index Breakdown for Selected Region */}
         <section
-          id="psi-breakdown"
           aria-label="Detailed Pollutant Readings for Selected Region"
           className="space-y-4"
         >
@@ -879,7 +861,6 @@ export default function App() {
 
         {/* Section 4: Regional Comparison Matrix across all Singapore Regions */}
         <section
-          id="regional-matrix"
           aria-label="Compare All Regions in Singapore"
           className="bg-white border border-slate-200 rounded-2xl overflow-hidden"
         >

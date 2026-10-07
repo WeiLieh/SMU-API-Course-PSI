@@ -2,6 +2,7 @@ import { Pm25ApiResponse, PsiApiResponse, RegionMetadata, RegionName } from '../
 
 const PSI_ENDPOINT = 'https://api-open.data.gov.sg/v2/real-time/api/psi';
 const PM25_ENDPOINT = 'https://api-open.data.gov.sg/v2/real-time/api/pm25';
+const ONEMAP_SEARCH_ENDPOINT = 'https://www.onemap.gov.sg/api/common/elastic/search';
 
 export async function fetchNeaAirQuality(dateQuery?: string): Promise<{
   psi: PsiApiResponse;
@@ -33,6 +34,52 @@ export async function fetchNeaAirQuality(dateQuery?: string): Promise<{
   }
 
   return { psi, pm25 };
+}
+
+export interface PostalLookupResult {
+  postalCode: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * Resolves a 6-digit Singapore postal code to coordinates using Singapore's
+ * official keyless OneMap API.
+ */
+export async function lookupSingaporePostalCode(
+  postalCode: string
+): Promise<PostalLookupResult> {
+  const cleaned = postalCode.trim();
+  if (!/^\d{6}$/.test(cleaned)) {
+    throw new Error('Please enter a valid 6-digit Singapore postal code.');
+  }
+
+  const url = `${ONEMAP_SEARCH_ENDPOINT}?searchVal=${encodeURIComponent(
+    cleaned
+  )}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Postal code lookup failed (HTTP ${res.status}).`);
+  }
+
+  const data = await res.json();
+  const results = Array.isArray(data?.results) ? data.results : [];
+  const exactMatch =
+    results.find((r: Record<string, string>) => r.POSTAL === cleaned) ||
+    results[0];
+
+  if (!exactMatch || !exactMatch.LATITUDE || !exactMatch.LONGITUDE) {
+    throw new Error(`No Singapore location found for postal code ${cleaned}.`);
+  }
+
+  return {
+    postalCode: cleaned,
+    address: exactMatch.ADDRESS || exactMatch.SEARCHVAL || cleaned,
+    latitude: parseFloat(exactMatch.LATITUDE),
+    longitude: parseFloat(exactMatch.LONGITUDE),
+  };
 }
 
 /**
