@@ -1,3 +1,8 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 export type RegionName = 'north' | 'south' | 'east' | 'west' | 'central';
 
 export interface LabelLocation {
@@ -67,4 +72,49 @@ export interface Pm25ApiResponse {
     paginationToken?: string;
   };
   errorMsg: string;
+}
+
+export type AirQualityBand = 'Good' | 'Moderate' | 'Unhealthy' | 'Very Unhealthy' | 'Hazardous';
+
+export interface AirBandInfo {
+  band: AirQualityBand;
+  rangeLabel: string;
+  colorName: string;
+  bgClass: string;
+  textClass: string;
+  borderClass: string;
+  badgeBg: string;
+  ringClass: string;
+  description: string;
+  generalAdvisory: string;
+  vulnerableAdvisory: string;
+}
+
+export interface ApiHealthServiceResult {
+  id: string;
+  name: string;
+  url: string;
+  status: 'UP' | 'DEGRADED' | 'DOWN';
+  httpStatus: number | null;
+  latencyMs: number;
+  critical: boolean;
+  error: string | null;
+  metadata?: any;
+  lastChecked: string;
+}
+
+export interface ApiHealthReport {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  timestamp: string;
+  uptimeSeconds: number;
+  summary: {
+    totalServices: number;
+    operational: number;
+    degraded: number;
+    down: number;
+    healthScorePercent: number;
+    averageLatencyMs: number;
+    message: string;
+  };
+  services: ApiHealthServiceResult[];
 }
