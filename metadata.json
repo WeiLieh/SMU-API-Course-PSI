@@ -1,0 +1,6 @@
+{
+  "name": "SG Air Monitor — NEA Real-Time PSI & PM2.5",
+  "description": "Mobile-responsive real-time air quality monitor for Singapore using NEA keyless APIs for PSI and PM2.5 readings by region and location.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
