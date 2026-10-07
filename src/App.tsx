@@ -27,33 +27,158 @@ import {
   findNearestRegion,
 } from './services/neaApi';
 
-const PSI_READING_KEYS: PsiMetricKey[] = [
-  'psi_twenty_four_hourly',
-  'pm25_twenty_four_hourly',
-  'pm25_sub_index',
-  'pm10_twenty_four_hourly',
-  'pm10_sub_index',
-  'so2_twenty_four_hourly',
-  'so2_sub_index',
-  'co_eight_hour_max',
-  'co_sub_index',
-  'o3_eight_hour_max',
-  'o3_sub_index',
-  'no2_one_hour_max',
+interface MetricMeta {
+  key: PsiMetricKey;
+  label: string;
+  shortLabel: string;
+  description: string;
+  unit?: string;
+}
+
+const PSI_METRICS_META: MetricMeta[] = [
+  {
+    key: 'psi_twenty_four_hourly',
+    label: '24-Hour PSI',
+    shortLabel: '24-Hr PSI',
+    description: '24-Hour Pollutant Standards Index',
+  },
+  {
+    key: 'pm25_twenty_four_hourly',
+    label: 'PM2.5 (24-Hour Avg)',
+    shortLabel: 'PM2.5 (24-Hr)',
+    description: 'Fine particulate matter 24-hour concentration',
+    unit: 'µg/m³',
+  },
+  {
+    key: 'pm25_sub_index',
+    label: 'PM2.5 Sub-Index',
+    shortLabel: 'PM2.5 Index',
+    description: '24-Hour PM2.5 sub-index reading',
+  },
+  {
+    key: 'pm10_twenty_four_hourly',
+    label: 'PM10 (24-Hour Avg)',
+    shortLabel: 'PM10 (24-Hr)',
+    description: 'Particulate matter 24-hour concentration',
+    unit: 'µg/m³',
+  },
+  {
+    key: 'pm10_sub_index',
+    label: 'PM10 Sub-Index',
+    shortLabel: 'PM10 Index',
+    description: '24-Hour PM10 sub-index reading',
+  },
+  {
+    key: 'so2_twenty_four_hourly',
+    label: 'Sulphur Dioxide (24-Hour)',
+    shortLabel: 'SO₂ (24-Hr)',
+    description: '24-Hour Sulphur Dioxide concentration',
+    unit: 'µg/m³',
+  },
+  {
+    key: 'so2_sub_index',
+    label: 'Sulphur Dioxide Sub-Index',
+    shortLabel: 'SO₂ Index',
+    description: '24-Hour SO₂ sub-index reading',
+  },
+  {
+    key: 'co_eight_hour_max',
+    label: 'Carbon Monoxide (8-Hour Max)',
+    shortLabel: 'CO (8-Hr Max)',
+    description: '8-Hour maximum Carbon Monoxide concentration',
+    unit: 'mg/m³',
+  },
+  {
+    key: 'co_sub_index',
+    label: 'Carbon Monoxide Sub-Index',
+    shortLabel: 'CO Index',
+    description: '8-Hour CO sub-index reading',
+  },
+  {
+    key: 'o3_eight_hour_max',
+    label: 'Ozone (8-Hour Max)',
+    shortLabel: 'O₃ (8-Hr Max)',
+    description: '8-Hour maximum Ozone concentration',
+    unit: 'µg/m³',
+  },
+  {
+    key: 'o3_sub_index',
+    label: 'Ozone Sub-Index',
+    shortLabel: 'O₃ Index',
+    description: '8-Hour Ozone sub-index reading',
+  },
+  {
+    key: 'no2_one_hour_max',
+    label: 'Nitrogen Dioxide (1-Hour Max)',
+    shortLabel: 'NO₂ (1-Hr Max)',
+    description: '1-Hour maximum Nitrogen Dioxide concentration',
+    unit: 'µg/m³',
+  },
 ];
 
-function formatTimestamp(isoString?: string): string {
+const METRIC_META_MAP: Record<PsiMetricKey, MetricMeta> = PSI_METRICS_META.reduce(
+  (acc, item) => {
+    acc[item.key] = item;
+    return acc;
+  },
+  {} as Record<PsiMetricKey, MetricMeta>
+);
+
+const REGION_DISPLAY_NAMES: Record<RegionName, string> = {
+  north: 'North',
+  south: 'South',
+  east: 'East',
+  west: 'West',
+  central: 'Central',
+};
+
+function formatFriendlyTime(isoString?: string): string {
   if (!isoString) return '—';
   try {
     const d = new Date(isoString);
     if (Number.isNaN(d.getTime())) return isoString;
     return d.toLocaleTimeString('en-SG', {
-      hour: '2-digit',
+      hour: 'numeric',
       minute: '2-digit',
-      hour12: false,
+      hour12: true,
     });
   } catch {
     return isoString;
+  }
+}
+
+function formatFriendlyDateTime(isoString?: string): string {
+  if (!isoString) return '—';
+  try {
+    const d = new Date(isoString);
+    if (Number.isNaN(d.getTime())) return isoString;
+    return d.toLocaleString('en-SG', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return isoString;
+  }
+}
+
+function formatFriendlyDate(dateStr?: string): string {
+  if (!dateStr) return '—';
+  try {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    if (!year || !month || !day) return dateStr;
+    const d = new Date(year, month - 1, day);
+    return d.toLocaleDateString('en-SG', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return dateStr;
   }
 }
 
@@ -92,13 +217,14 @@ export default function App() {
         psiItems[0]?.timestamp || pm25Items[0]?.timestamp || '';
       setSelectedTimestamp(latestTs);
 
-      // Sync dateInput with returned item date if empty
       if (!queryDate && psiItems[0]?.date) {
         setDateInput(psiItems[0].date);
       }
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Failed to fetch NEA API data'
+        err instanceof Error
+          ? err.message
+          : 'Unable to load air quality readings from NEA.'
       );
     } finally {
       setLoading(false);
@@ -111,11 +237,9 @@ export default function App() {
 
   // Extract regionMetadata from API response
   const regions: RegionMetadata[] = useMemo(() => {
-    const meta =
-      psiData?.data?.regionMetadata?.length
-        ? psiData.data.regionMetadata
-        : pm25Data?.data?.regionMetadata || [];
-    return meta;
+    return psiData?.data?.regionMetadata?.length
+      ? psiData.data.regionMetadata
+      : pm25Data?.data?.regionMetadata || [];
   }, [psiData, pm25Data]);
 
   // Ensure selectedRegion is valid in returned regionMetadata
@@ -187,7 +311,7 @@ export default function App() {
 
   const handleLocateMe = () => {
     if (!navigator.geolocation) {
-      setGeoStatus('Browser Geolocation API is not available');
+      setGeoStatus('Location services are not supported by your browser.');
       return;
     }
     setLocating(true);
@@ -202,13 +326,13 @@ export default function App() {
         if (nearest) {
           setSelectedRegion(nearest.region);
           setGeoStatus(
-            `Nearest region: ${nearest.region} (${nearest.distanceKm.toFixed(2)} km)`
+            `Closest region: ${REGION_DISPLAY_NAMES[nearest.region]} (${nearest.distanceKm.toFixed(1)} km away)`
           );
         }
         setLocating(false);
       },
       (err) => {
-        setGeoStatus(err.message || 'Unable to acquire device coordinates');
+        setGeoStatus(err.message || 'Could not detect your current location.');
         setLocating(false);
       },
       { enableHighAccuracy: true, timeout: 10000 }
@@ -225,7 +349,7 @@ export default function App() {
       if (nearest) {
         setSelectedRegion(nearest.region);
         setGeoStatus(
-          `Nearest region: ${nearest.region} (${nearest.distanceKm.toFixed(2)} km)`
+          `Closest region: ${REGION_DISPLAY_NAMES[nearest.region]} (${nearest.distanceKm.toFixed(1)} km away)`
         );
       }
     } else {
@@ -238,6 +362,9 @@ export default function App() {
     loadData(dateInput);
   };
 
+  const activeMetricMeta = METRIC_META_MAP[selectedPsiKey];
+  const regionDisplayName = REGION_DISPLAY_NAMES[selectedRegion] || selectedRegion;
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
       {/* Top Bar Contract: 3 zones (Brand, Nav links, Primary Actions) */}
@@ -246,7 +373,7 @@ export default function App() {
           href="#overview"
           className="text-base sm:text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap"
         >
-          SG Air Monitor
+          SG Air Quality Monitor
         </a>
 
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
@@ -254,25 +381,25 @@ export default function App() {
             href="#controls"
             className="hover:text-slate-900 transition-colors whitespace-nowrap"
           >
-            Location & Query
+            Location & Time
           </a>
           <a
             href="#primary-readings"
             className="hover:text-slate-900 transition-colors whitespace-nowrap"
           >
-            PSI & PM2.5
+            Key Readings
           </a>
           <a
             href="#psi-breakdown"
             className="hover:text-slate-900 transition-colors whitespace-nowrap"
           >
-            Sub-Indices
+            All Pollutants
           </a>
           <a
             href="#regional-matrix"
             className="hover:text-slate-900 transition-colors whitespace-nowrap"
           >
-            Regional Matrix
+            Compare Regions
           </a>
         </nav>
 
@@ -284,7 +411,7 @@ export default function App() {
             className="min-h-[40px] px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50 transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <LocateFixed className="w-3.5 h-3.5 text-blue-600" />
-            <span>{locating ? 'Locating...' : 'Nearest Region'}</span>
+            <span>{locating ? 'Locating...' : 'Use My Location'}</span>
           </button>
           <button
             type="button"
@@ -313,56 +440,66 @@ export default function App() {
           >
             <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
             <div className="flex-1 text-sm">
-              <p className="font-semibold">API Request Error</p>
-              <p className="text-rose-700 mt-0.5 font-mono text-xs">{error}</p>
+              <p className="font-semibold">Unable to Load Readings</p>
+              <p className="text-rose-700 mt-0.5 text-xs">{error}</p>
             </div>
             <button
               type="button"
               onClick={() => loadData(dateInput)}
               className="px-3 py-1.5 text-xs font-semibold bg-white border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors whitespace-nowrap"
             >
-              Retry
+              Try Again
             </button>
           </div>
         )}
 
-        {/* Section 1: Controls corresponding strictly to API inputs and regionMetadata */}
+        {/* Section 1: Controls for Region, Date, Time, and Location */}
         <section
           id="controls"
-          aria-label="API Query and Location Controls"
+          aria-label="Location and Date Controls"
           className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-6"
         >
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-slate-100 pb-5">
             <div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-                Real-Time PSI & PM2.5 Telemetry
+                Singapore PSI & PM2.5 Readings
               </h1>
-              {/* Zero-Pill Metadata Discipline: Clean unboxed text with · separators */}
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mt-1.5 font-mono tabular-nums">
+              {/* Clean unboxed metadata with · separators */}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mt-1.5">
                 <span>
-                  date: {activePsiItem?.date || activePm25Item?.date || '—'}
+                  Date:{' '}
+                  <strong className="font-medium text-slate-700">
+                    {formatFriendlyDate(
+                      activePsiItem?.date || activePm25Item?.date
+                    )}
+                  </strong>
                 </span>
                 <span aria-hidden="true">·</span>
                 <span>
-                  timestamp:{' '}
-                  {activePsiItem?.timestamp ||
-                    activePm25Item?.timestamp ||
-                    '—'}
+                  Reading Time:{' '}
+                  <strong className="font-medium text-slate-700">
+                    {formatFriendlyTime(
+                      activePsiItem?.timestamp || activePm25Item?.timestamp
+                    )}
+                  </strong>
                 </span>
                 <span aria-hidden="true">·</span>
                 <span>
-                  updatedTimestamp:{' '}
-                  {activePsiItem?.updatedTimestamp ||
-                    activePm25Item?.updatedTimestamp ||
-                    '—'}
+                  Last Updated:{' '}
+                  <strong className="font-medium text-slate-700">
+                    {formatFriendlyDateTime(
+                      activePsiItem?.updatedTimestamp ||
+                        activePm25Item?.updatedTimestamp
+                    )}
+                  </strong>
                 </span>
               </div>
             </div>
 
-            {/* Region Selector Tabs from data.regionMetadata[].name */}
+            {/* Region Selector Tabs */}
             <div className="flex flex-col sm:items-end gap-1.5">
-              <span className="text-xs font-medium text-slate-500">
-                regionMetadata.name
+              <span className="text-xs font-semibold text-slate-600">
+                Select Region in Singapore
               </span>
               <div
                 role="tablist"
@@ -378,13 +515,13 @@ export default function App() {
                       aria-selected={isActive}
                       type="button"
                       onClick={() => setSelectedRegion(r.name)}
-                      className={`min-h-[44px] px-3 py-2 text-xs font-semibold capitalize rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                      className={`min-h-[44px] px-3 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
                         isActive
                           ? 'bg-white text-blue-600 shadow-xs'
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      {r.name}
+                      {REGION_DISPLAY_NAMES[r.name] || r.name}
                     </button>
                   );
                 })}
@@ -393,8 +530,8 @@ export default function App() {
           </div>
 
           {/* Input Fields Mapped to API Query Parameters & Coordinates */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
-            {/* 1. API Date Parameter (?date=YYYY-MM-DD) & Timestamp Item Selector */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-1">
+            {/* 1. Date & Hourly Time Selection */}
             <div className="space-y-3">
               <form onSubmit={handleDateSubmit} className="space-y-1.5">
                 <label
@@ -402,7 +539,7 @@ export default function App() {
                   className="flex items-center gap-1.5 text-xs font-semibold text-slate-700"
                 >
                   <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Query Parameter (date)</span>
+                  <span>Filter by Date</span>
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -437,7 +574,7 @@ export default function App() {
                 >
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
                   <span>
-                    items[].timestamp ({availableTimestamps.length})
+                    Select Reading Time ({availableTimestamps.length} available)
                   </span>
                 </label>
                 <select
@@ -445,18 +582,18 @@ export default function App() {
                   value={selectedTimestamp}
                   onChange={(e) => setSelectedTimestamp(e.target.value)}
                   disabled={availableTimestamps.length === 0}
-                  className="w-full min-h-[44px] px-3 py-2 text-xs font-mono tabular-nums bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
+                  className="w-full min-h-[44px] px-3 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
                 >
                   {availableTimestamps.map((ts) => (
                     <option key={ts} value={ts}>
-                      {ts}
+                      {formatFriendlyDateTime(ts)}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
 
-            {/* 2. Coordinate Inputs matching regionMetadata[].labelLocation */}
+            {/* 2. Your Location Coordinates (Latitude & Longitude) */}
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="space-y-1.5">
@@ -465,7 +602,7 @@ export default function App() {
                     className="flex items-center gap-1 text-xs font-semibold text-slate-700"
                   >
                     <Compass className="w-3.5 h-3.5 text-slate-400" />
-                    <span>latitude</span>
+                    <span>Your Latitude</span>
                   </label>
                   <input
                     id="user-lat-input"
@@ -489,7 +626,7 @@ export default function App() {
                     className="flex items-center gap-1 text-xs font-semibold text-slate-700"
                   >
                     <Compass className="w-3.5 h-3.5 text-slate-400" />
-                    <span>longitude</span>
+                    <span>Your Longitude</span>
                   </label>
                   <input
                     id="user-lng-input"
@@ -509,25 +646,27 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-0.5 text-xs text-slate-500 font-mono tabular-nums">
+              <div className="flex flex-col gap-1 pt-0.5 text-xs text-slate-500">
                 <span className="flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <span>
-                    labelLocation:{' '}
-                    {activeRegionMeta
-                      ? `${activeRegionMeta.labelLocation.latitude}, ${activeRegionMeta.labelLocation.longitude}`
-                      : '—'}
+                    {regionDisplayName} Station Coordinates:{' '}
+                    <span className="font-mono tabular-nums text-slate-700">
+                      {activeRegionMeta
+                        ? `${activeRegionMeta.labelLocation.latitude}, ${activeRegionMeta.labelLocation.longitude}`
+                        : '—'}
+                    </span>
                   </span>
                 </span>
                 {geoStatus && (
-                  <span className="text-blue-600 font-sans font-medium truncate max-w-[180px]">
+                  <span className="text-blue-600 font-medium">
                     {geoStatus}
                   </span>
                 )}
               </div>
             </div>
 
-            {/* 3. PSI Reading Metric Selector corresponding to data.items[].readings */}
+            {/* 3. Pollutant / Sub-Index Selector */}
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <label
@@ -535,7 +674,7 @@ export default function App() {
                   className="flex items-center gap-1.5 text-xs font-semibold text-slate-700"
                 >
                   <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
-                  <span>PSI readings Metric Key</span>
+                  <span>Highlight Pollutant / Index</span>
                 </label>
                 <select
                   id="psi-reading-key-select"
@@ -543,22 +682,18 @@ export default function App() {
                   onChange={(e) =>
                     setSelectedPsiKey(e.target.value as PsiMetricKey)
                   }
-                  className="w-full min-h-[44px] px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
+                  className="w-full min-h-[44px] px-3 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
                 >
-                  {PSI_READING_KEYS.map((key) => (
-                    <option key={key} value={key}>
-                      {key}
+                  {PSI_METRICS_META.map((item) => (
+                    <option key={item.key} value={item.key}>
+                      {item.label} {item.unit ? `(${item.unit})` : ''}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div className="text-xs text-slate-500 font-mono tabular-nums pt-0.5">
-                <span>API Response Code: </span>
-                <span>
-                  PSI={psiData ? psiData.code : '—'} · PM2.5=
-                  {pm25Data ? pm25Data.code : '—'}
-                </span>
+              <div className="text-xs text-slate-500 pt-0.5">
+                <span>{activeMetricMeta.description}</span>
               </div>
             </div>
           </div>
@@ -570,17 +705,19 @@ export default function App() {
           aria-label="Selected Region Primary Readings"
           className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6"
         >
-          {/* Card 1: PSI 24-Hourly */}
+          {/* Card 1: 24-Hour PSI */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 flex flex-col justify-between">
             <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs text-slate-500 font-mono">
-                <span>psi_twenty_four_hourly</span>
-                <span className="capitalize font-sans font-semibold text-slate-700">
-                  {selectedRegion}
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-semibold text-slate-700">
+                  24-Hour PSI
+                </span>
+                <span className="font-semibold text-slate-700">
+                  {regionDisplayName} Region
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Endpoint: /v2/real-time/api/psi
+                Overall Pollutant Standards Index
               </p>
             </div>
 
@@ -592,25 +729,28 @@ export default function App() {
                       selectedRegion
                     ] ?? '—')}
               </span>
+              <span className="text-xs font-medium text-slate-400">PSI</span>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono tabular-nums">
-              <span>timestamp: {formatTimestamp(activePsiItem?.timestamp)}</span>
-              <span>date: {activePsiItem?.date || '—'}</span>
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>As of {formatFriendlyTime(activePsiItem?.timestamp)}</span>
+              <span>{formatFriendlyDate(activePsiItem?.date)}</span>
             </div>
           </div>
 
-          {/* Card 2: PM2.5 1-Hourly (from PM2.5 Endpoint) */}
+          {/* Card 2: 1-Hour PM2.5 (from PM2.5 Endpoint) */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 flex flex-col justify-between">
             <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs text-slate-500 font-mono">
-                <span>pm25_one_hourly</span>
-                <span className="capitalize font-sans font-semibold text-slate-700">
-                  {selectedRegion}
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-semibold text-slate-700">
+                  1-Hour PM2.5 Reading
+                </span>
+                <span className="font-semibold text-slate-700">
+                  {regionDisplayName} Region
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Endpoint: /v2/real-time/api/pm25
+                Hourly Fine Particulate Matter Concentration
               </p>
             </div>
 
@@ -622,27 +762,28 @@ export default function App() {
                       selectedRegion
                     ] ?? '—')}
               </span>
+              <span className="text-xs font-mono text-slate-400">µg/m³</span>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono tabular-nums">
-              <span>
-                timestamp: {formatTimestamp(activePm25Item?.timestamp)}
-              </span>
-              <span>date: {activePm25Item?.date || '—'}</span>
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>As of {formatFriendlyTime(activePm25Item?.timestamp)}</span>
+              <span>{formatFriendlyDate(activePm25Item?.date)}</span>
             </div>
           </div>
 
           {/* Card 3: Active Inspected Metric from PSI Endpoint */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 flex flex-col justify-between">
             <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs text-blue-600 font-mono font-semibold">
-                <span className="truncate">{selectedPsiKey}</span>
-                <span className="capitalize font-sans text-slate-700">
-                  {selectedRegion}
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-blue-600 truncate">
+                  {activeMetricMeta.label}
+                </span>
+                <span className="font-semibold text-slate-700">
+                  {regionDisplayName} Region
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Selected PSI Reading Field
+                {activeMetricMeta.description}
               </p>
             </div>
 
@@ -654,64 +795,80 @@ export default function App() {
                       selectedRegion
                     ] ?? '—')}
               </span>
+              {activeMetricMeta.unit && (
+                <span className="text-xs font-mono text-slate-400">
+                  {activeMetricMeta.unit}
+                </span>
+              )}
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono tabular-nums">
               <span>
-                lat: {activeRegionMeta?.labelLocation.latitude ?? '—'}
+                Lat: {activeRegionMeta?.labelLocation.latitude ?? '—'}
               </span>
               <span>
-                lng: {activeRegionMeta?.labelLocation.longitude ?? '—'}
+                Lng: {activeRegionMeta?.labelLocation.longitude ?? '—'}
               </span>
             </div>
           </div>
         </section>
 
-        {/* Section 3: Complete PSI Endpoint Readings for Selected Region */}
+        {/* Section 3: Complete Pollutant & Sub-Index Breakdown for Selected Region */}
         <section
           id="psi-breakdown"
-          aria-label="All PSI Endpoint Readings for Selected Region"
+          aria-label="Detailed Pollutant Readings for Selected Region"
           className="space-y-4"
         >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
               <h2 className="text-lg font-bold text-slate-900">
-                PSI Endpoint Readings ({selectedRegion})
+                All Pollutant & Sub-Index Readings ({regionDisplayName} Region)
               </h2>
               <p className="text-xs text-slate-500">
-                Select any metric card below to inspect it across all regions
-                and timestamps
+                Tap any pollutant card below to compare it across all regions
               </p>
             </div>
-            <div className="text-xs font-mono text-slate-500 tabular-nums">
-              updatedTimestamp: {activePsiItem?.updatedTimestamp || '—'}
+            <div className="text-xs text-slate-500">
+              Updated: {formatFriendlyDateTime(activePsiItem?.updatedTimestamp)}
             </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-            {PSI_READING_KEYS.map((key) => {
-              const val = activePsiItem?.readings?.[key]?.[selectedRegion];
-              const isSelected = selectedPsiKey === key;
+            {PSI_METRICS_META.map((item) => {
+              const val = activePsiItem?.readings?.[item.key]?.[selectedRegion];
+              const isSelected = selectedPsiKey === item.key;
               return (
                 <button
-                  key={key}
+                  key={item.key}
                   type="button"
-                  onClick={() => setSelectedPsiKey(key)}
-                  className={`min-h-[88px] p-4 rounded-xl border text-left transition-colors flex flex-col justify-between cursor-pointer ${
+                  onClick={() => setSelectedPsiKey(item.key)}
+                  className={`min-h-[96px] p-4 rounded-xl border text-left transition-colors flex flex-col justify-between cursor-pointer ${
                     isSelected
                       ? 'bg-blue-50/50 border-blue-600'
                       : 'bg-white border-slate-200 hover:border-slate-300'
                   }`}
                 >
-                  <div className="text-xs font-mono text-slate-600 break-all">
-                    {key}
+                  <div>
+                    <div className="text-xs font-semibold text-slate-800">
+                      {item.label}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                      {item.description}
+                    </div>
                   </div>
                   <div className="mt-3 flex items-baseline justify-between">
-                    <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-                      {loading ? '·' : (val ?? '—')}
-                    </span>
-                    <span className="text-xs text-slate-400 capitalize">
-                      {selectedRegion}
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+                        {loading ? '·' : (val ?? '—')}
+                      </span>
+                      {item.unit && (
+                        <span className="text-[11px] font-mono text-slate-400">
+                          {item.unit}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-slate-400">
+                      {regionDisplayName}
                     </span>
                   </div>
                 </button>
@@ -720,52 +877,47 @@ export default function App() {
           </div>
         </section>
 
-        {/* Section 4: Regional Comparison Matrix across all regionMetadata items */}
+        {/* Section 4: Regional Comparison Matrix across all Singapore Regions */}
         <section
           id="regional-matrix"
-          aria-label="Regional Comparison Matrix"
+          aria-label="Compare All Regions in Singapore"
           className="bg-white border border-slate-200 rounded-2xl overflow-hidden"
         >
           <div className="p-4 sm:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
               <h2 className="text-lg font-bold text-slate-900">
-                Regional Comparison Matrix
+                Compare All Regions Across Singapore
               </h2>
-              <p className="text-xs text-slate-500 font-mono">
-                regionMetadata · pm25_one_hourly · {selectedPsiKey}
+              <p className="text-xs text-slate-500">
+                Click any row to switch your active region
               </p>
             </div>
-            <div className="text-xs font-mono text-slate-500 tabular-nums">
-              timestamp: {selectedTimestamp || '—'}
+            <div className="text-xs text-slate-500">
+              Reading Time: {formatFriendlyDateTime(selectedTimestamp)}
             </div>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-mono text-slate-500">
-                  <th className="py-3.5 px-4 sm:px-6 font-semibold">
-                    regionMetadata.name
-                  </th>
-                  <th className="py-3.5 px-4 font-semibold">
-                    labelLocation.latitude
-                  </th>
-                  <th className="py-3.5 px-4 font-semibold">
-                    labelLocation.longitude
-                  </th>
+                <tr className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-600">
+                  <th className="py-3.5 px-4 sm:px-6 font-semibold">Region</th>
+                  <th className="py-3.5 px-4 font-semibold">Latitude</th>
+                  <th className="py-3.5 px-4 font-semibold">Longitude</th>
                   {regionDistances && (
                     <th className="py-3.5 px-4 font-semibold text-right">
-                      distance (km)
+                      Distance from You
                     </th>
                   )}
                   <th className="py-3.5 px-4 font-semibold text-right">
-                    pm25_one_hourly
+                    1-Hour PM2.5 (µg/m³)
                   </th>
                   <th className="py-3.5 px-4 font-semibold text-right">
-                    psi_twenty_four_hourly
+                    24-Hour PSI
                   </th>
                   <th className="py-3.5 px-4 sm:px-6 font-semibold text-right text-blue-600">
-                    {selectedPsiKey}
+                    {activeMetricMeta.shortLabel}
+                    {activeMetricMeta.unit ? ` (${activeMetricMeta.unit})` : ''}
                   </th>
                 </tr>
               </thead>
@@ -790,8 +942,8 @@ export default function App() {
                           : 'hover:bg-slate-50'
                       }`}
                     >
-                      <td className="py-3.5 px-4 sm:px-6 font-sans capitalize text-slate-900">
-                        {r.name}
+                      <td className="py-3.5 px-4 sm:px-6 font-sans text-slate-900">
+                        {REGION_DISPLAY_NAMES[r.name] || r.name}
                       </td>
                       <td className="py-3.5 px-4 text-slate-600">
                         {r.labelLocation.latitude}
@@ -801,7 +953,7 @@ export default function App() {
                       </td>
                       {regionDistances && (
                         <td className="py-3.5 px-4 text-right text-slate-600">
-                          {dist !== undefined ? dist.toFixed(2) : '—'}
+                          {dist !== undefined ? `${dist.toFixed(1)} km` : '—'}
                         </td>
                       )}
                       <td className="py-3.5 px-4 text-right text-slate-900">
@@ -821,39 +973,40 @@ export default function App() {
           </div>
         </section>
 
-        {/* Section 5: Timestamp Items Log (when date query returns multiple hourly items) */}
+        {/* Section 5: Hourly History Table (when date query returns multiple hourly items) */}
         {availableTimestamps.length > 1 && (
           <section
-            aria-label="Returned Timestamp Items"
+            aria-label="Hourly Readings Log"
             className="bg-white border border-slate-200 rounded-2xl overflow-hidden"
           >
             <div className="p-4 sm:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">
-                  Returned Items by Timestamp ({selectedRegion})
+                  Hourly Readings History ({regionDisplayName} Region)
                 </h2>
-                <p className="text-xs text-slate-500 font-mono">
-                  items[].timestamp ({availableTimestamps.length} records
-                  returned for date {dateInput})
+                <p className="text-xs text-slate-500">
+                  Showing {availableTimestamps.length} hourly readings for{' '}
+                  {formatFriendlyDate(dateInput)}
                 </p>
               </div>
             </div>
 
             <div className="overflow-x-auto max-h-96">
               <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-xs font-mono text-slate-500">
+                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-xs text-slate-600">
                   <tr>
                     <th className="py-3 px-4 sm:px-6 font-semibold">
-                      timestamp
+                      Reading Time
                     </th>
-                    <th className="py-3 px-4 font-semibold">
-                      updatedTimestamp
-                    </th>
+                    <th className="py-3 px-4 font-semibold">Last Updated</th>
                     <th className="py-3 px-4 font-semibold text-right">
-                      pm25_one_hourly ({selectedRegion})
+                      1-Hour PM2.5 (µg/m³)
                     </th>
                     <th className="py-3 px-4 sm:px-6 font-semibold text-right text-blue-600">
-                      {selectedPsiKey} ({selectedRegion})
+                      {activeMetricMeta.shortLabel}
+                      {activeMetricMeta.unit
+                        ? ` (${activeMetricMeta.unit})`
+                        : ''}
                     </th>
                   </tr>
                 </thead>
@@ -877,13 +1030,14 @@ export default function App() {
                             : 'hover:bg-slate-50'
                         }`}
                       >
-                        <td className="py-3 px-4 sm:px-6 text-slate-900">
-                          {ts}
+                        <td className="py-3 px-4 sm:px-6 font-sans text-slate-900">
+                          {formatFriendlyDateTime(ts)}
                         </td>
-                        <td className="py-3 px-4 text-slate-500">
-                          {psiItem?.updatedTimestamp ||
-                            pm25Item?.updatedTimestamp ||
-                            '—'}
+                        <td className="py-3 px-4 font-sans text-slate-500">
+                          {formatFriendlyTime(
+                            psiItem?.updatedTimestamp ||
+                              pm25Item?.updatedTimestamp
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right text-slate-900">
                           {pm25Item?.readings?.pm25_one_hourly?.[
