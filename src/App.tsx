@@ -199,8 +199,9 @@ export default function App() {
     'psi_twenty_four_hourly'
   );
 
-  // 6-Digit Singapore Postal Code & Resolved Coordinates (matched against API regionMetadata.labelLocation)
+  // 6-Digit Singapore Postal Code & Resolved Address/Coordinates (matched against API regionMetadata.labelLocation)
   const [postalCode, setPostalCode] = useState<string>('');
+  const [postalAddress, setPostalAddress] = useState<string | null>(null);
   const [userCoords, setUserCoords] = useState<{
     lat: number;
     lng: number;
@@ -349,6 +350,7 @@ export default function App() {
     setGeoStatus(null);
     try {
       const result = await lookupSingaporePostalCode(codeToLookup);
+      setPostalAddress(result.address);
       setUserCoords({ lat: result.latitude, lng: result.longitude });
       const nearest = findNearestRegion(
         result.latitude,
@@ -358,10 +360,11 @@ export default function App() {
       if (nearest) {
         setSelectedRegion(nearest.region);
         setGeoStatus(
-          `Postal ${result.postalCode} → ${REGION_DISPLAY_NAMES[nearest.region]} Region (${nearest.distanceKm.toFixed(1)} km)`
+          `Nearest region: ${REGION_DISPLAY_NAMES[nearest.region]} (${nearest.distanceKm.toFixed(1)} km away)`
         );
       }
     } catch (err) {
+      setPostalAddress(null);
       setUserCoords(null);
       setGeoError(
         err instanceof Error ? err.message : 'Unable to find postal code.'
@@ -378,9 +381,12 @@ export default function App() {
 
     if (digitsOnly.length === 6) {
       resolvePostalCode(digitsOnly);
-    } else if (digitsOnly.length === 0) {
-      setUserCoords(null);
-      setGeoStatus(null);
+    } else {
+      setPostalAddress(null);
+      if (digitsOnly.length === 0) {
+        setUserCoords(null);
+        setGeoStatus(null);
+      }
     }
   };
 
@@ -597,7 +603,7 @@ export default function App() {
             </div>
 
             {/* 2. 6-Digit Singapore Postal Code Input */}
-            <div className="space-y-3">
+            <div className="space-y-3 min-w-0">
               <form onSubmit={handlePostalSubmit} className="space-y-1.5">
                 <label
                   htmlFor="postal-code-input"
@@ -616,12 +622,12 @@ export default function App() {
                     placeholder="e.g. 178902"
                     value={postalCode}
                     onChange={handlePostalInputChange}
-                    className="flex-1 min-h-[44px] px-3 py-2 text-sm font-mono tabular-nums tracking-wider bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
+                    className="w-full min-w-0 flex-1 min-h-[44px] px-3 py-2 text-sm font-mono tabular-nums tracking-wider bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
                   />
                   <button
                     type="submit"
                     disabled={locating || postalCode.length !== 6}
-                    className="min-h-[44px] px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 rounded-xl transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                    className="shrink-0 min-h-[44px] px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 rounded-xl transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
                   >
                     <Search className="w-3.5 h-3.5" />
                     <span>Find</span>
@@ -629,18 +635,15 @@ export default function App() {
                 </div>
               </form>
 
-              <div className="flex flex-col gap-1 pt-0.5 text-xs text-slate-500">
-                <span className="flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span>
-                    {regionDisplayName} Station Coordinates:{' '}
-                    <span className="font-mono tabular-nums text-slate-700">
-                      {activeRegionMeta
-                        ? `${activeRegionMeta.labelLocation.latitude}, ${activeRegionMeta.labelLocation.longitude}`
-                        : '—'}
+              <div className="flex flex-col gap-1 pt-0.5 text-xs text-slate-600">
+                {postalAddress && (
+                  <div className="flex items-start gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                    <span className="font-medium text-slate-800 leading-snug">
+                      {postalAddress}
                     </span>
-                  </span>
-                </span>
+                  </div>
+                )}
                 {geoStatus && (
                   <span className="text-blue-600 font-medium">{geoStatus}</span>
                 )}
